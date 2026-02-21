@@ -1,9 +1,8 @@
 name: Build and Upload to PPA
 
 on:
-  push:
-    branches:
-      - ppa-deploy
+  release:
+    types: [published]
   workflow_dispatch:
     inputs:
       version:
@@ -32,15 +31,20 @@ jobs:
         id: version
         run: |
           if [ "${{ github.event.inputs.version }}" != "" ]; then
+            # 手动触发
             VERSION="${{ github.event.inputs.version }}"
+          elif [ "${{ github.event.release.tag_name }}" != "" ]; then
+            # Release 触发，从 tag 获取版本（去掉前缀）
+            VERSION=$(echo "${{ github.event.release.tag_name }}" | sed 's/^sea-lantern-v//')
           else
+            # 默认从 package.json 获取
             VERSION=$(node -p "require('./package.json').version")
           fi
           echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
-          
+
           # 添加构建号（使用 GitHub run ID）避免版本冲突
           BUILD_SUFFIX="${{ github.run_number }}"
-          
+
           echo "BUILD_SUFFIX=$BUILD_SUFFIX" >> $GITHUB_OUTPUT
           echo "Building version: $VERSION for ${{ matrix.distro }} with build suffix: $BUILD_SUFFIX"
 
