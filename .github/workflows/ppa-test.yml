@@ -1,0 +1,167 @@
+name: PPA Package Test
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to test (e.g., 0.6.5)'
+        required: true
+        default: '0.6.5'
+      distro:
+        description: 'Ubuntu distro to test (noble, jammy, focal)'
+        required: true
+        default: 'noble'
+  schedule:
+    # 每6小时检查一次 PPA 包状态
+    - cron: '0 */6 * * *'
+
+jobs:
+  test-ppa-package:
+    runs-on: ubuntu-latest
+    container:
+      image: ubuntu:${{ github.event.inputs.distro || 'noble' }}
+      options: --privileged
+
+    steps:
+      - name: Install dependencies
+        run: |
+          apt-get update
+          apt-get install -y curl wget gnupg software-properties-common dpkg
+
+      - name: Add PPA and install package
+        run: |
+          # 添加 PPA
+          add-apt-repository ppa:brianeee7878/sealantern -y
+          apt-get update
+
+          # 安装包
+          echo "Installing sea-lantern-ppa-updater..."
+          apt-get install -y sea-lantern-ppa-updater
+
+      - name: Verify installation
+        run: |
+          echo "=== 验证安装结果 ==="
+
+          # 检查命令是否存在
+          if [ -f "/usr/bin/sea-lantern" ]; then
+            echo "✅ /usr/bin/sea-lantern 存在"
+          else
+            echo "❌ /usr/bin/sea-lantern 不存在"
+            exit 1
+          fi
+
+          # 检查桌面文件
+          if [ -f "/usr/share/applications/Sea Lantern.desktop" ]; then
+            echo "✅ /usr/share/applications/Sea Lantern.desktop 存在"
+          else
+            echo "❌ 桌面文件不存在"
+            exit 1
+          fi
+
+          # 检查图标
+          ICON_FOUND=false
+          for size in 32x32 64x64 128x128 256x256; do
+            if [ -f "/usr/share/icons/hicolor/${size}/apps/sealantern.png" ]; then
+              echo "✅ 图标 ${size} 存在"
+              ICON_FOUND=true
+            fi
+          done
+          if [ "$ICON_FOUND" = false ]; then
+            echo "⚠️  未找到图标文件"
+          fi
+
+          # 检查嵌入的 deb 是否被清理
+          if ls /opt/sealantern/Sea.Lantern_*.deb 2>/dev/null; then
+            echo "⚠️  嵌入的 deb 包未被删除"
+          else
+            echo "✅ 嵌入的 deb 包已清理"
+          fi
+
+          echo ""
+          echo "=== 测试命令执行 ==="
+          sea-lantern --version 2>/dev/null || echo "⚠️  无法获取版本（可能需要图形环境）"
+
+      - name: Check PPA status via API
+        run: |
+          echo "=== PPA 状态检查 ==="
+
+          # 获取 PPA 信息
+          echo "PPA 基本信息:"
+          curl -s "https://api.launchpad.net/1.0/~brianeee7878/+archive/ubuntu/sealantern" | \
+            python3 -c "import sys,json; d=json.load(sys.stdin); print(f\"  名称: {d.get('displayname')}\"); print(f\"  签名指纹: {d.get('signing_key_fingerprint')}\")"
+
+          # 获取已发布的源码包
+          echo ""
+          echo "已发布的源码包:"
+          curl -s "https://api.launchpad.net/1.0/~brianeee7878/+archive/ubuntu/sealantern?ws.op=getPublishedSources" | \
+            python3 -c "import sys,json; d=json.load(sys.stdin); [print(f\"  - {e.get('display_name')} [{e.get('status')}]\") for e in d.get('entries',[]) if e.get('status')=='Published']"
+
+          # 获取构建记录
+          echo ""
+          echo "最近的构建记录:"
+          curl -s "https://api.launchpad.net/1.0/~brianeee7878/+archive/ubuntu/sealantern?ws.op=getBuildRecords" | \
+            python3 -c "import sys,json; d=json.load(sys.stdin); [print(f\"  - {e.get('title')}: {e.get('buildstate')}\") for e in d.get('entries',[])][:5]"
+
+      - name: Create GitHub Issue if test fails
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const title = `🚨 PPA Package Test Failed - ${new Date().toISOString()}`;
+            const body = `## PPA 包测试失败
+
+            - 测试时间: ${new Date().toISOString()}
+            - 版本: ${{ github.event.inputs.version || 'latest' }}
+            - 发行版: ${{ github.event.inputs.distro || 'noble' }}
+            - 工作流: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+            请检查:
+            1. PPA 包是否正确构建
+            2. 安装脚本是否正常执行
+            3. 依赖项是否完整
+
+            cc @brianikim`;
+
+            github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: title,
+              body: body,
+              labels: ['bug', 'ppa', 'automated']
+            });
+
+  monitor-ppa-status:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'schedule'
+
+    steps:
+      - name: Check PPA build status
+        run: |
+          echo "=== 监控 PPA 构建状态 ==="
+
+          # 获取失败的构建
+          curl -s "https://api.launchpad.net/1.0/~brianeee7878/+archive/ubuntu/sealantern?ws.op=getBuildRecords" | \
+            python3 -c "import sys,json; d=json.load(sys.stdin); failed = [e for e in d.get('entries',[]) if e.get('buildstate') != 'Successfully built']; (print('⚠️  发现失败的构建:') if failed else print('✅ 所有构建都成功')); [print(f\"  - {e.get('title')}: {e.get('buildstate')}\n    日志: {e.get('build_log_url')}\") for e in failed[:5]]"
+
+      - name: Notify on failure
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const title = `⚠️ PPA Build Monitor Alert - ${new Date().toISOString()}`;
+            const body = `## PPA 构建监控告警
+
+            检测到 PPA 构建异常，请检查 Launchpad 上的构建状态。
+
+            - 时间: ${new Date().toISOString()}
+            - PPA: https://launchpad.net/~brianeee7878/+archive/ubuntu/sealantern
+
+            cc @brianikim`;
+
+            github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: title,
+              body: body,
+              labels: ['ppa', 'monitoring', 'automated']
+            });
