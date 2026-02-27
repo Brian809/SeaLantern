@@ -152,6 +152,27 @@ pub async fn pick_jar_file(app: tauri::AppHandle) -> Result<Option<String>, Stri
 }
 
 #[tauri::command]
+pub async fn pick_archive_file(app: tauri::AppHandle) -> Result<Option<String>, String> {
+    let (tx, rx) = std::sync::mpsc::channel();
+
+    app.dialog()
+        .file()
+        .set_title("Select server file")
+        .add_filter("Server Files", &["jar", "zip", "tar", "tgz", "gz"])
+        .add_filter("JAR Files", &["jar"])
+        .add_filter("ZIP Files", &["zip"])
+        .add_filter("TAR Files", &["tar"])
+        .add_filter("Compressed TAR", &["tgz", "gz"])
+        .add_filter("All Files", &["*"])
+        .pick_file(move |path| {
+            let result = path.map(|p| p.to_string());
+            let _ = tx.send(result);
+        });
+
+    rx.recv().map_err(|e| format!("Dialog error: {}", e))
+}
+
+#[tauri::command]
 pub async fn pick_startup_file(
     app: tauri::AppHandle,
     mode: String,
@@ -189,6 +210,41 @@ pub async fn pick_startup_file(
 }
 
 #[tauri::command]
+pub async fn pick_server_executable(
+    app: tauri::AppHandle,
+) -> Result<Option<(String, String)>, String> {
+    let (tx, rx) = std::sync::mpsc::channel();
+
+    app.dialog()
+        .file()
+        .set_title("Select server executable file")
+        .add_filter("Server Files", &["jar", "bat", "sh"])
+        .add_filter("JAR Files", &["jar"])
+        .add_filter("BAT Files", &["bat"])
+        .add_filter("Shell Scripts", &["sh"])
+        .add_filter("All Files", &["*"])
+        .pick_file(move |path| {
+            let result = path.map(|p| {
+                let path_str = p.to_string();
+                let ext = std::path::Path::new(&path_str)
+                    .extension()
+                    .and_then(|e| e.to_str())
+                    .map(|e| e.to_ascii_lowercase())
+                    .unwrap_or_default();
+                let mode = match ext.as_str() {
+                    "bat" => "bat",
+                    "sh" => "sh",
+                    _ => "jar",
+                };
+                (path_str, mode.to_string())
+            });
+            let _ = tx.send(result);
+        });
+
+    rx.recv().map_err(|e| format!("Dialog error: {}", e))
+}
+
+#[tauri::command]
 pub async fn pick_java_file(app: tauri::AppHandle) -> Result<Option<String>, String> {
     let (tx, rx) = tokio::sync::oneshot::channel();
 
@@ -206,12 +262,26 @@ pub async fn pick_java_file(app: tauri::AppHandle) -> Result<Option<String>, Str
 }
 
 #[tauri::command]
+pub async fn pick_save_file(app: tauri::AppHandle) -> Result<Option<String>, String> {
+    let (tx, rx) = std::sync::mpsc::channel();
+    app.dialog()
+        .file()
+        .set_title("Save")
+        .save_file(move |path| {
+            let result = path.map(|p| p.to_string());
+            let _ = tx.send(result);
+        });
+
+    rx.recv().map_err(|e| format!("Dialog error: {}", e))
+}
+
+#[tauri::command]
 pub async fn pick_folder(app: tauri::AppHandle) -> Result<Option<String>, String> {
     let (tx, rx) = tokio::sync::oneshot::channel();
 
     app.dialog()
         .file()
-        .set_title("Select modpack folder")
+        .set_title("Select folder")
         .pick_folder(move |path| {
             let result = path.map(|p| p.to_string());
             let _ = tx.send(result);
@@ -306,4 +376,12 @@ pub fn open_folder(path: String) -> Result<(), String> {
     }
 
     Ok(())
+}
+
+#[tauri::command]
+pub fn get_default_run_path() -> Result<String, String> {
+    let documents_dir = dirs_next::document_dir().ok_or_else(|| "无法获取文档目录".to_string())?;
+    let minecraft_servers_dir = documents_dir.join("Minecraft Servers");
+
+    Ok(minecraft_servers_dir.to_string_lossy().to_string())
 }

@@ -73,32 +73,35 @@ async function loadPluginData() {
 async function loadDependentPlugins() {
   if (!plugin.value) return;
 
-  const deps: PluginInfo[] = [];
-  for (const p of pluginStore.plugins) {
-    if (p.state !== "enabled") continue;
-    if (p.manifest.id === props.pluginId) continue;
+  const candidates = pluginStore.plugins.filter((p) => {
+    if (p.state !== "enabled") return false;
+    if (p.manifest.id === props.pluginId) return false;
 
     const allDeps = [
       ...(p.manifest.dependencies || []),
       ...(p.manifest.optional_dependencies || []),
     ];
-    const dependsOnCurrent = allDeps.some((dep) => getDependencyId(dep) === props.pluginId);
+    return allDeps.some((dep) => getDependencyId(dep) === props.pluginId);
+  });
 
-    if (dependsOnCurrent && p.manifest.settings?.length) {
-      deps.push(p);
-
+  const settingsPromises = candidates
+    .filter((p) => p.manifest.settings?.length)
+    .map(async (p) => {
       const depSettings = await pluginStore.getPluginSettings(p.manifest.id);
-      dependentSettingsForms[p.manifest.id] = { ...depSettings };
-
-      for (const field of p.manifest.settings) {
-        if (dependentSettingsForms[p.manifest.id][field.key] === undefined) {
-          dependentSettingsForms[p.manifest.id][field.key] =
-            field.default ?? getDefaultValue(field.type);
+      const form: Record<string, any> = { ...depSettings };
+      for (const field of p.manifest.settings!) {
+        if (form[field.key] === undefined) {
+          form[field.key] = field.default ?? getDefaultValue(field.type);
         }
       }
-    }
+      return { plugin: p, form };
+    });
+
+  const results = await Promise.all(settingsPromises);
+  dependentPlugins.value = results.map((r) => r.plugin);
+  for (const { plugin: depPlugin, form } of results) {
+    dependentSettingsForms[depPlugin.manifest.id] = form;
   }
-  dependentPlugins.value = deps;
 }
 
 function getDefaultValue(type: string): any {
@@ -134,15 +137,19 @@ async function applyPreset(presetKey: string) {
   const presetData = presets[presetKey];
   const pluginId = plugin.value?.manifest.id;
   if (!pluginId) return;
+
+  const settingsToSave: Record<string, any> = {};
   for (const [key, value] of Object.entries(presetData)) {
     if (key !== "name") {
       settingsForm[key] = value;
-      await pluginStore.setPluginSettings(pluginId, { [key]: value });
+      settingsToSave[key] = value;
     }
   }
 
   settingsForm["preset"] = presetKey;
-  await pluginStore.setPluginSettings(pluginId, { preset: presetKey });
+  settingsToSave["preset"] = presetKey;
+
+  await pluginStore.setPluginSettings(pluginId, settingsToSave);
   await pluginStore.applyThemeProviderSettings(pluginId);
 }
 
@@ -155,17 +162,16 @@ async function saveSettings() {
       await pluginStore.applyThemeProviderSettings(props.pluginId);
     }
 
-    for (const depPlugin of dependentPlugins.value) {
+    const depPromises = dependentPlugins.value.map(async (depPlugin) => {
       const depForm = dependentSettingsForms[depPlugin.manifest.id];
       if (depForm) {
-        await pluginStore.setPluginSettings(depPlugin.manifest.id, {
-          ...depForm,
-        });
+        await pluginStore.setPluginSettings(depPlugin.manifest.id, { ...depForm });
         if (pluginStore.hasCapability(depPlugin.manifest.id, "theme-widgets-provider")) {
           await pluginStore.applyThemeWidgetsProviderSettings(depPlugin.manifest.id);
         }
       }
-    }
+    });
+    await Promise.all(depPromises);
   } finally {
     saving.value = false;
   }
@@ -502,7 +508,7 @@ watch(
 }
 
 .header-info h1 {
-  font-size: 1.5rem;
+  font-size: var(--sl-font-size-3xl);
   font-weight: 600;
   color: var(--sl-text-primary);
   margin: 0 0 4px 0;
@@ -510,7 +516,7 @@ watch(
 
 .header-desc {
   color: var(--sl-text-secondary);
-  font-size: 0.875rem;
+  font-size: var(--sl-font-size-base);
   margin: 0;
 }
 
@@ -519,7 +525,7 @@ watch(
 }
 
 .section-title {
-  font-size: 1rem;
+  font-size: var(--sl-font-size-lg);
   font-weight: 600;
   color: var(--sl-text-primary);
   margin: 0 0 16px 0;
@@ -541,7 +547,7 @@ watch(
 }
 
 .color-row-value {
-  font-size: 13px;
+  font-size: var(--sl-font-size-sm);
   color: var(--sl-text-secondary);
   font-family: monospace;
 }
@@ -564,14 +570,14 @@ watch(
 }
 
 .dependent-section-header h2 {
-  font-size: 1.125rem;
+  font-size: var(--sl-font-size-xl);
   font-weight: 600;
   color: var(--sl-text-primary);
   margin: 0 0 4px 0;
 }
 
 .dependent-section-header p {
-  font-size: 0.875rem;
+  font-size: var(--sl-font-size-base);
   color: var(--sl-text-secondary);
   margin: 0;
 }
@@ -597,14 +603,14 @@ watch(
 }
 
 .dependent-info h3 {
-  font-size: 0.9375rem;
+  font-size: var(--sl-font-size-base);
   font-weight: 600;
   color: var(--sl-text-primary);
   margin: 0;
 }
 
 .dependent-version {
-  font-size: 0.75rem;
+  font-size: var(--sl-font-size-xs);
   color: var(--sl-text-secondary);
 }
 
@@ -619,7 +625,7 @@ watch(
 }
 
 .auto-save-hint {
-  font-size: 13px;
+  font-size: var(--sl-font-size-sm);
   color: var(--sl-text-secondary);
   opacity: 0.7;
 }
@@ -674,7 +680,7 @@ watch(
 }
 
 .preset-name {
-  font-size: 12px;
+  font-size: var(--sl-font-size-xs);
 }
 
 .color-rows {

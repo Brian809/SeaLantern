@@ -82,7 +82,7 @@ useRegisterComponent(id, {
   align-items: center;
   background: var(--sl-surface, #fff);
   border: 1px solid var(--sl-border, #ddd);
-  border-radius: 6px;
+  border-radius: var(--sl-radius-sm);
   transition:
     border-color var(--sl-transition-fast),
     box-shadow var(--sl-transition-fast);
@@ -134,5 +134,28 @@ useRegisterComponent(id, {
   align-items: center;
   padding: 0 8px;
   color: var(--sl-text-tertiary);
+}
+
+/* 统一的输入框内嵌操作按钮样式 */
+:deep(.sl-input-action) {
+  padding: 4px 10px;
+  border-radius: var(--sl-radius-sm);
+  color: var(--sl-primary);
+  background: var(--sl-primary-bg);
+  font-size: var(--sl-font-size-sm);
+  cursor: pointer;
+  border: none;
+  transition:
+    background-color 0.15s ease,
+    opacity 0.15s ease;
+}
+
+:deep(.sl-input-action:hover) {
+  background: color-mix(in srgb, var(--sl-primary) 15%, var(--sl-primary-bg));
+}
+
+:deep(.sl-input-action:disabled) {
+  opacity: 0.55;
+  cursor: not-allowed;
 }
 </style>

@@ -100,11 +100,11 @@ function getCompletions(input: string, wordIndex: number, currentWord: string): 
     // 第一级：匹配命令名
     // 如果没有输入，返回所有命令
     if (!currentWord) {
-      return Object.keys(commandTree).sort();
+      return Object.keys(commandTree).toSorted();
     }
     return Object.keys(commandTree)
       .filter((cmd) => cmd.toLowerCase().startsWith(lowerWord))
-      .sort();
+      .toSorted();
   }
 
   const cmd = words[0]?.toLowerCase();
@@ -341,7 +341,7 @@ function onInputChange() {
       >
         {{ sug }}
       </div>
-      <div class="suggestion-hint">Tab 补全 / Up Down 选择</div>
+      <div class="suggestion-hint">{{ i18n.t("console.suggestion_hint") }}</div>
     </div>
     <div class="console-input-bar">
       <span class="input-prefix">&gt;</span>
