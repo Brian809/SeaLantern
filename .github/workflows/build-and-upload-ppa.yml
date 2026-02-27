@@ -52,7 +52,7 @@ jobs:
         run: |
           VERSION="${{ steps.version.outputs.VERSION }}"
           wget -O "Sea.Lantern_${VERSION}_amd64.deb" \
-            "https://github.com/SeaLantern-Studio/SeaLantern/releases/download/sea-lantern-v${VERSION}/Sea.Lantern_${VERSION}_amd64.deb"
+            "https://github.com/SeaLantern-Studio/SeaLantern/releases/download/v${VERSION}/Sea.Lantern_${VERSION}_amd64.deb"
 
       - name: Build PPA package for ${{ matrix.distro }}
         run: |
